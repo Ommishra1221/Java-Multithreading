@@ -1,4 +1,4 @@
-public class Demo5 {
+public class _05_ThreadExecutionOrderDemo {
     public static void main(String[] args) {
         // 1 to 100 (even numbers)
         Thread t1 = new Thread(() -> {

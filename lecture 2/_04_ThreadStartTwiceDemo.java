@@ -1,4 +1,4 @@
-public class Demo4 {
+public class _04_ThreadStartTwiceDemo {
     public static void main(String[] args) {
         Thread t1 = new Thread(() -> {
             System.out.println("Current thread is " + Thread.currentThread().getName());

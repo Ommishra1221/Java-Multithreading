@@ -1,4 +1,4 @@
-public class Demo6 {
+public class _06_ThreadLifecycleDemo {
     public static void main(String[] args) {
         // Thread new stage
 

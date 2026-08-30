@@ -1,4 +1,4 @@
-public class Demo2 {
+public class _02_RunnableInterfaceDemo {
     public static void main(String[] args) {
         //MyRunnable r1 = new MyRunnable();
         Thread t1 = new Thread(() -> System.out.println("Thread is Running"));
@@ -11,9 +11,9 @@ public class Demo2 {
 
 // Thread using Runnable Interface
 
-class MyRunnable implements Runnable {
-    @Override
-    public void run() {
-        System.out.println("Thread is runnning");
-    }
-}
+// class MyRunnable implements Runnable {
+//     @Override
+//     public void run() {
+//         System.out.println("Thread is runnning");
+//     }
+// }

@@ -1,4 +1,4 @@
-public class Demo3 {
+public class _03_ThreadNameAndIdDemo {
     public static void main(String[] args) {
         System.out.println(Thread.currentThread().getName());
         // System.out.println(Thread.currentThread().getId());
