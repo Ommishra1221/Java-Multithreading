@@ -1,0 +1,65 @@
+# ==============================
+# Java Compiled Files
+# ==============================
+*.class
+*.jar
+*.war
+*.ear
+
+# ==============================
+# Java Build / Maven / Gradle
+# ==============================
+target/
+build/
+.gradle/
+bin/
+out/
+
+# ==============================
+# IDE Files
+# ==============================
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# Eclipse
+.classpath
+.project
+.settings/
+bin/
+
+# VS Code
+.vscode/
+
+# NetBeans
+nbproject/private/
+nbbuild/
+nbdist/
+.nb-gradle/
+
+# ==============================
+# OS Generated Files
+# ==============================
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+
+# ==============================
+# PDFs (Large Binary Files)
+# Consider using Git LFS if you need to track these
+# Uncomment the lines below to ignore PDFs
+# ==============================
+# *.pdf
+
+# ==============================
+# Logs
+# ==============================
+*.log
