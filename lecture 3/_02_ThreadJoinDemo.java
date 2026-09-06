@@ -12,8 +12,8 @@ public class _02_ThreadJoinDemo {
 
         t1.start();
 
-        //t1.join()
-        t1.join(1000); // let the t1 thread first complete its execution
+        t1.join();
+        // t1.join(1000); // let the t1 thread first complete its execution
 
         System.out.println("Main thread ends");
     }
