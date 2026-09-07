@@ -2,425 +2,685 @@
 
 ## Executor Framework in Java
 
-This lecture introduces the **Executor Framework**, a higher-level approach to concurrent task execution. Instead of creating and managing one `Thread` for every task, we submit tasks to an executor, which manages reusable worker threads, queues, results, scheduling, shutdown, and overload behavior.
+> **Core mental shift:** Do not think, “I need to create a thread.” Think, “I need to submit a task to an execution policy.”
+
+The Executor Framework is Java’s higher-level system for submitting tasks without directly managing the threads that execute them.
+
+```text
+Task
+  ↓
+Executor / ExecutorService
+  ↓
+Work Queue
+  ↓
+Worker Threads
+  ↓
+Task Execution
+  ↓
+Result / Completion
+```
 
 ---
 
-# 1. Why Manual Thread Creation Becomes a Problem
+# 1. Why Manual Thread Creation Is Not Ideal
 
-For a small program this is fine:
+A manual approach such as:
 
 ```java
-Thread t1 = new Thread(task1);
-Thread t2 = new Thread(task2);
-
-t1.start();
-t2.start();
+Thread thread = new Thread(() -> processOrder());
+thread.start();
 ```
 
-But imagine hundreds or thousands of tasks:
+makes the application responsible for:
 
 ```text
-Task 1 → Thread 1
-Task 2 → Thread 2
-Task 3 → Thread 3
-...
-Task N → Thread N
+Define task
+Create thread
+Decide how it runs
+Manage lifecycle
+Coordinate completion/interruption
 ```
 
-Problems can include:
+This works for small examples, but does not scale well for many independent tasks.
 
-- thread memory overhead
-- OS scheduling overhead
-- thread creation/destruction cost
-- excessive context switching
-- poor scalability
+### Main problems
 
-The lecture slides illustrate substantial per-thread memory usage and show that very large numbers of threads can lead to **thrashing**. These figures are illustrative, not a universal fixed memory cost for every Java thread. fileciteturn9file0L1-L4
+```text
+1. Thread resource usage
+2. Scheduling overhead
+3. Context switching
+4. Thread creation/destruction cost
+5. No natural thread reuse
+6. Uncontrolled thread growth
+7. Difficult lifecycle management
+```
 
-### Core idea
+A platform thread requires native/JVM/OS resources. Exact stack size varies by JVM, OS, and configuration, so do not memorize a fixed “1 MB per thread” rule.
 
-> **More threads do not automatically mean more performance.**
+Too many runnable threads can also cause excessive context switching and reduce useful CPU work.
 
 ---
 
-# 2. Thread-per-Task vs Executor Model
+# 2. Thread Pool — The Solution
 
-### Manual model
-
-```text
-Task
- ↓
-Create Thread
- ↓
-Start Thread
- ↓
-Execute
- ↓
-Thread finishes
-```
-
-### Executor model
+Instead of:
 
 ```text
-Task
- ↓
-ExecutorService
- ↓
-Thread Pool
- ↓
-Worker Thread
- ↓
-Execute Task
+Task → create thread → execute → terminate
 ```
 
-The executor separates:
+use:
 
 ```text
-WHAT work should be done?
-        ↓
-Runnable / Callable
-
-HOW the work is executed?
-        ↓
-Executor Framework
+Tasks
+  ↓
+Queue
+  ↓
+Reusable Worker Threads
+  ↓
+Execute tasks
+  ↓
+Take more tasks
 ```
 
-This is **separation of task submission from thread management**.
+A thread pool reuses worker threads.
+
+Example:
+
+```text
+Worker-1 → Task 1 → Task 5 → Task 9
+Worker-2 → Task 2 → Task 6 → Task 10
+```
+
+The workers do not need to be recreated for every task.
 
 ---
 
 # 3. What Is the Executor Framework?
 
-The Executor Framework is a Java concurrency framework that manages asynchronous task execution through executors and worker threads.
+The Executor Framework provides an abstraction for **submitting tasks without directly managing the worker threads**.
 
-The central idea is:
+Without an executor:
 
-```text
-You submit tasks.
-The framework manages threads.
+```java
+Thread thread = new Thread(() -> processOrder(order));
+thread.start();
 ```
 
-This lets application code focus more on business logic instead of manually handling every thread.
+With an executor:
+
+```java
+executor.execute(() -> processOrder(order));
+```
+
+With an executor, the execution system can decide whether a task should:
+
+```text
+Run immediately
+Wait in a queue
+Use an existing worker
+Cause another worker to be created
+Be rejected under overload
+```
+
+The reference notes describe this as separating **task submission** from **task execution**. fileciteturn10file0L69-L92
 
 ---
 
-# 4. Thread Pool
+# 4. Task vs Executor
 
-A **thread pool** is a collection of reusable worker threads.
+| Concept | Responsibility |
+|---|---|
+| Task | Describes the work |
+| Executor | Decides how/when the work runs |
+| Thread | Low-level execution unit |
+| Thread Pool | Reusable set of worker threads |
 
-Instead of:
-
-```text
-Task 1 → new Thread
-Task 2 → new Thread
-Task 3 → new Thread
-```
-
-we use:
+Mental model:
 
 ```text
-             ┌───────────────┐
-Task 1 ─────→│               │
-Task 2 ─────→│   Work Queue  │
-Task 3 ─────→│               │
-Task 4 ─────→│               │
-             └───────┬───────┘
-                     ↓
-              ┌─────────────┐
-              │Worker Threads│
-              │ W1 W2 W3 W4│
-              └─────────────┘
+Business Logic
+     ↓
+Runnable / Callable
+     ↓
+    TASK
+
+Concurrency Policy
+     ↓
+Executor / ExecutorService
 ```
 
-The workers are reused for many tasks.
+This separation makes application code easier to test and allows the concurrency policy to change independently. fileciteturn10file0L103-L110
 
 ---
 
-# 5. Why Reuse Worker Threads?
-
-Suppose there are 4 worker threads and 10 tasks:
-
-```text
-Worker-1 → Task1 → Task5 → Task9
-Worker-2 → Task2 → Task6 → Task10
-Worker-3 → Task3 → Task7
-Worker-4 → Task4 → Task8
-```
-
-The same workers handle multiple tasks.
-
-This avoids repeatedly paying the cost of:
-
-```text
-create thread
-→ execute
-→ destroy thread
-→ create another
-```
-
----
-
-# 6. Work Queue
-
-When all appropriate workers are busy, additional tasks can wait in a queue.
-
-```text
-Submitted Tasks
-      ↓
-   Work Queue
-      ↓
-Worker becomes free
-      ↓
-Worker takes next task
-```
-
-The lecture diagram explicitly shows tasks entering a queue while a set of worker threads consumes those tasks. fileciteturn9file0L2-L4
-
-The queue therefore acts as a **buffer between incoming work and available workers**.
-
----
-
-# 7. Executor Hierarchy
-
-The important hierarchy is:
+# 5. Executor Hierarchy
 
 ```text
 Executor
    ↓
 ExecutorService
    ↓
-Implementations
+AbstractExecutorService
+   ↓
+ThreadPoolExecutor
 ```
 
-Important implementations include:
+For scheduled execution:
 
 ```text
-ThreadPoolExecutor
+ExecutorService
+   ↓
+ScheduledExecutorService
+   ↓
 ScheduledThreadPoolExecutor
-ForkJoinPool
 ```
 
-The lecture diagram shows `Executor` → `ExecutorService` and the major implementation families. fileciteturn9file0L3-L4
+The reference material gives this hierarchy directly. fileciteturn10file0L178-L191
 
 ---
 
-# 8. `Executor`
+# 6. `Executor` Interface
 
-The basic `Executor` abstraction provides:
-
-```java
-void execute(Runnable command);
-```
-
-Example:
+The smallest abstraction is:
 
 ```java
-Executor executor = ...;
-
-executor.execute(() -> {
-    System.out.println("Task running");
-});
+public interface Executor {
+    void execute(Runnable command);
+}
 ```
 
-Think:
+It provides only:
 
-> **Executor = basic task execution abstraction.**
+```java
+execute(Runnable)
+```
+
+Important point:
+
+> `Executor` does not guarantee that a new thread will be created.
+
+A valid executor can simply do:
+
+```java
+command.run();
+```
+
+or create a new thread, or use a thread pool. fileciteturn10file0L192-L228
 
 ---
 
-# 9. `ExecutorService`
+# 7. `ExecutorService`
 
-`ExecutorService` extends the basic executor idea and adds richer task submission and lifecycle management.
+`ExecutorService` extends `Executor` and adds practical task-management features:
 
-Important methods include:
+```text
+Task execution
+Task results
+Task cancellation
+Bulk operations
+Lifecycle management
+```
+
+Important methods:
 
 ```java
-execute()
-submit()
+execute(...)
+submit(...)
+invokeAll(...)
+invokeAny(...)
 shutdown()
 shutdownNow()
-invokeAll()
-invokeAny()
+awaitTermination(...)
 ```
 
-For this lecture, remember the major distinction:
-
-```text
-execute() → simple Runnable execution
-submit()  → Future/result tracking
-```
+fileciteturn10file0L229-L250
 
 ---
 
-# 10. `execute()`
+# 8. `execute()`
+
+```java
+executor.execute(task);
+```
+
+Properties:
+
+```text
+Accepts Runnable
+Returns nothing
+Does not return Future
+Good for fire-and-forget tasks
+```
 
 Example:
 
 ```java
 executor.execute(() -> {
-    System.out.println("Hello");
+    System.out.println("Sending notification");
 });
 ```
 
-The task is a `Runnable` and no `Future` is returned.
-
-The uploaded `Demo.java` demonstrates a fixed pool with `execute()` and five submitted tasks. fileciteturn9file4L4-L21
+Because there is no `Future`, the caller has no per-task Future handle for result tracking or Future-based cancellation. fileciteturn10file0L251-L267
 
 ---
 
-# 11. `submit()`
+# 9. `submit()`
+
+`submit()` returns a `Future`.
+
+### Callable
+
+```java
+Future<Integer> future =
+    executor.submit(() -> 10 + 20);
+```
+
+### Runnable
+
+```java
+Future<?> future =
+    executor.submit(() -> {
+        System.out.println("Task completed");
+    });
+```
+
+For a successfully completed `Runnable`, `future.get()` returns `null`. fileciteturn10file0L268-L276
+
+---
+
+# 10. `execute()` vs `submit()`
+
+| Feature | `execute()` | `submit()` |
+|---|---|---|
+| Task | `Runnable` | `Runnable` / `Callable` |
+| Return | Nothing | `Future` |
+| Completion tracking | No direct handle | Through `Future` |
+| Per-task cancellation through Future | No | Yes |
+| Typical use | Fire-and-forget | Result/cancellation/completion tracking |
+
+fileciteturn10file0L287-L301
+
+### Easy memory trick
+
+```text
+execute() → execute and forget
+submit()  → submit and track
+```
+
+---
+
+# 11. Runnable vs Callable
+
+## Runnable
+
+```java
+@FunctionalInterface
+public interface Runnable {
+    void run();
+}
+```
+
+Characteristics:
+
+```text
+No return value
+Cannot declare checked exceptions in run()
+Works with execute()
+Works with submit()
+```
+
+## Callable
+
+```java
+@FunctionalInterface
+public interface Callable<V> {
+    V call() throws Exception;
+}
+```
+
+Characteristics:
+
+```text
+Returns a value
+Can throw checked exceptions
+Used with submit()
+Used with invokeAll()
+Used with invokeAny()
+```
+
+fileciteturn10file0L303-L332
+
+---
+
+# 12. Runnable vs Callable — Interview Table
+
+| Feature | Runnable | Callable<V> |
+|---|---|---|
+| Method | `run()` | `call()` |
+| Return value | No | Yes |
+| Checked exceptions | Cannot declare | Can declare |
+| `execute()` | Yes | No |
+| `submit()` | Yes | Yes |
+
+fileciteturn10file0L334-L344
+
+---
+
+# 13. Future
+
+A `Future` is a handle to the **result or completion state of an asynchronous task**.
+
+```text
+Task submitted now
+       ↓
+Task may finish later
+       ↓
+Future represents pending result
+```
 
 Example:
 
 ```java
-Future<Integer> future = executor.submit(() -> {
-    return 10;
-});
+Future<Integer> future =
+    executor.submit(() -> {
+        Thread.sleep(1000);
+        return 10 + 20;
+    });
+
+System.out.println("Main thread can do other work");
+
+Integer result = future.get();
 ```
 
-`submit()` can accept `Runnable` or `Callable` tasks and returns a `Future` representing the submitted computation.
+fileciteturn10file0L345-L362
 
 ---
 
-# 12. `Runnable` vs `Callable`
-
-## `Runnable`
+# 14. Important Future Methods
 
 ```java
-Runnable task = () -> {
-    System.out.println("Running");
-};
+future.get();
+future.get(timeout, unit);
+future.isDone();
+future.isCancelled();
+future.cancel(true);
 ```
 
-It represents a task that does not return a result:
-
-```text
-run()
- ↓
-void
-```
-
-## `Callable<T>`
-
-```java
-Callable<Integer> task = () -> {
-    return 10;
-};
-```
-
-It represents a task that can return a value:
-
-```text
-call()
- ↓
-T
-```
-
-`Callable` can also throw checked exceptions.
-
-The lecture slides explicitly contrast `Runnable`'s lack of a return type with `Callable`'s result-returning behavior. fileciteturn9file0L4-L6
-
----
-
-# 13. Runnable vs Callable — Interview Table
-
-| Runnable | Callable |
+| Method | Purpose |
 |---|---|
-| `run()` | `call()` |
-| returns `void` | returns a value |
-| commonly used with `execute()` | commonly used with `submit()` |
-| cannot directly declare checked exceptions in `run()` | can throw checked exceptions |
-| good for tasks where no result is required | good when a result is needed |
+| `get()` | Wait for completion and return result |
+| `get(timeout, unit)` | Wait only for specified duration |
+| `isDone()` | Check whether task has completed |
+| `isCancelled()` | Check whether task was cancelled |
+| `cancel(true)` | Request cancellation and may interrupt a running task |
+
+fileciteturn10file0L367-L379
 
 ---
 
-# 14. `Future`
-
-A `Future` is a handle representing the result of an asynchronous computation.
-
-Example:
-
-```java
-Future<Integer> future = executor.submit(() -> {
-    return 10;
-});
-```
-
-Think:
-
-```text
-submit task
-    ↓
-Future
-    ↓
-result available later
-```
-
-The task may still be running when `submit()` returns.
-
----
-
-# 15. `future.get()`
-
-To obtain the result:
+# 15. `Future.get()` Is Blocking
 
 ```java
 Integer result = future.get();
 ```
 
-If the result is not ready, `get()` can block the calling thread until it becomes available.
+If the result is already available:
 
-The uploaded `Demo2.java` demonstrates submitting a `Callable` and later calling `f1.get()` to retrieve its result. fileciteturn9file3L7-L23
+```text
+returns immediately
+```
 
-### Important
+If the result is not ready:
+
+```text
+calling thread waits
+```
+
+So:
 
 ```text
 submit() → asynchronous submission
-get()    → may block
+get()    → may block caller
+```
+
+The reference notes explicitly state that calling `get()` immediately can make the calling code wait. fileciteturn10file0L380-L388
+
+---
+
+# 16. Timed `Future.get()`
+
+To avoid waiting forever:
+
+```java
+try {
+    Integer result =
+        future.get(2, TimeUnit.SECONDS);
+
+    System.out.println(result);
+
+} catch (TimeoutException exception) {
+    System.out.println("Task did not finish in time");
+}
+```
+
+This limits how long the caller waits. fileciteturn10file0L393-L400
+
+---
+
+# 17. Cancelling a Future
+
+```java
+boolean cancelled = future.cancel(true);
+```
+
+`true` means that if the task is already running, the executor may interrupt the worker thread.
+
+### Critical point
+
+> **Cancellation is cooperative.**
+
+`cancel(true)` does not forcibly terminate arbitrary Java code.
+
+A task should respond to interruption appropriately. fileciteturn10file0L402-L413
+
+Example:
+
+```java
+Callable<Void> task = () -> {
+    while (!Thread.currentThread().isInterrupted()) {
+        // Perform work
+    }
+    return null;
+};
 ```
 
 ---
 
-# 16. Exceptions: `execute()` vs `submit()`
+# 18. Exception Handling With `execute()`
 
-The lecture code contrasts exception handling for the two APIs.
-
-With:
+Example:
 
 ```java
 executor.execute(() -> {
-    int x = 10 / 0;
+    int result = 10 / 0;
 });
 ```
 
-the task exception occurs on worker-thread execution.
+The exception is not returned to the submitting thread through a `Future`.
 
-With:
+It is handled through the worker thread's uncaught-exception mechanism. A failed worker may terminate and the pool can create a replacement when required. fileciteturn10file0L418-L435
+
+### Controlled handling
 
 ```java
-Future<Integer> future = executor.submit(() -> {
-    return 10 / 0;
+executor.execute(() -> {
+    try {
+        int result = 10 / 0;
+    } catch (ArithmeticException exception) {
+        System.out.println(
+            "Task failed: " + exception.getMessage()
+        );
+    }
 });
 ```
-
-the failure is associated with the `Future`, and calling:
-
-```java
-future.get();
-```
-
-reports it to the caller through an `ExecutionException` whose cause is the task exception.
-
-The uploaded `Demo3.java` demonstrates this `execute()` vs `submit()` distinction. fileciteturn9file2L9-L26
 
 ---
 
-# 17. `ThreadPoolExecutor`
+# 19. Exception Handling With `submit()`
 
-`ThreadPoolExecutor` is a configurable implementation of `ExecutorService`.
+Example:
 
-It allows control over things such as:
+```java
+Future<Integer> future =
+    executor.submit(() -> 10 / 0);
+```
+
+The exception is captured by the `Future`.
+
+Then:
+
+```java
+try {
+    Integer result = future.get();
+} catch (ExecutionException exception) {
+    Throwable actualCause = exception.getCause();
+}
+```
+
+The original task exception is available through:
+
+```java
+exception.getCause();
+```
+
+If the Future is ignored and `get()` is never called, the task failure can be easy to miss. fileciteturn10file0L436-L456
+
+---
+
+# 20. Why Thread Pools?
+
+A thread pool provides:
+
+```text
+Reusable workers
+Controlled concurrency
+Task queue
+Resource limits
+Worker lifecycle management
+```
+
+This is the main scalability advantage over manually creating a thread for every task.
+
+---
+
+# 21. Fixed Thread Pool
+
+Create one with:
+
+```java
+ExecutorService executor =
+    Executors.newFixedThreadPool(2);
+```
+
+If five tasks are submitted:
+
+```text
+2 workers
+5 tasks
+```
+
+At most two tasks execute concurrently, while remaining tasks wait in the queue.
+
+The uploaded reference code uses this exact pattern with five tasks and two workers. fileciteturn9file4L4-L21
+
+### Benefits
+
+```text
+Fixed worker count
+Predictable concurrency
+Worker reuse
+Simple configuration
+```
+
+---
+
+# 22. Worker Reuse
+
+A worker follows a lifecycle like:
+
+```text
+Create worker
+     ↓
+Execute task
+     ↓
+Take another queued task
+     ↓
+Become idle
+     ↓
+Reuse or terminate according to rules
+```
+
+A worker is not destroyed after every task. Worker reuse is one of the main benefits of a pool.
+
+---
+
+# 23. Work Queue
+
+A thread pool normally contains a queue for tasks that cannot execute immediately.
+
+```text
+Submitted task
+      ↓
+Available worker?
+   /          \
+ YES            NO
+  ↓              ↓
+execute        queue
+```
+
+The queue prevents the application from creating a new thread for every incoming task.
+
+But an unbounded queue can still grow continuously if tasks arrive faster than workers complete them. fileciteturn10file0L153-L162
+
+---
+
+# 24. ThreadPoolExecutor
+
+`ThreadPoolExecutor` is the configurable concrete thread-pool engine.
+
+`Executors` is the convenience utility class containing factory methods.
+
+```text
+Executors
+→ convenience factories
+
+ThreadPoolExecutor
+→ configurable execution engine
+```
+
+The reference notes emphasize this distinction. fileciteturn10file0L575-L592
+
+---
+
+# 25. `ThreadPoolExecutor` Constructor
+
+A commonly used constructor is:
+
+```java
+ThreadPoolExecutor executor =
+    new ThreadPoolExecutor(
+        corePoolSize,
+        maximumPoolSize,
+        keepAliveTime,
+        timeUnit,
+        workQueue,
+        threadFactory,
+        rejectionHandler
+    );
+```
+
+Important parameters:
 
 ```text
 corePoolSize
@@ -432,417 +692,353 @@ ThreadFactory
 RejectedExecutionHandler
 ```
 
-The lecture slide explicitly shows these configuration components. fileciteturn9file0L7-L9
+fileciteturn10file0L593-L617
 
 ---
 
-# 18. Basic `ThreadPoolExecutor` Example
-
-The uploaded `Demo4.java` uses:
-
-```java
-ThreadPoolExecutor executor =
-    new ThreadPoolExecutor(
-        2,
-        5,
-        10,
-        TimeUnit.SECONDS,
-        new ArrayBlockingQueue<>(2)
-    );
-```
-
-So this example has:
-
-```text
-corePoolSize    = 2
-maximumPoolSize = 5
-keepAliveTime   = 10 seconds
-queue           = ArrayBlockingQueue(capacity 2)
-```
-
-fileciteturn9file1L7-L16
-
----
-
-# 19. `corePoolSize`
+# 26. `corePoolSize`
 
 Example:
+
+```java
+corePoolSize = 2;
+```
+
+When a new task arrives and fewer than two workers exist, the pool normally creates another worker.
+
+### Important detail
+
+Core threads are not necessarily created when the executor is constructed.
+
+By default they are started as tasks arrive.
+
+They can be prestarted:
+
+```java
+executor.prestartCoreThread();
+executor.prestartAllCoreThreads();
+```
+
+Core workers are normally retained when idle unless core-thread timeout is explicitly enabled. fileciteturn10file0L618-L630
+
+---
+
+# 27. `maximumPoolSize`
+
+Example:
+
+```java
+maximumPoolSize = 5;
+```
+
+This is the maximum number of workers the pool may contain.
+
+### Very important
+
+The pool does not immediately create five threads.
+
+Extra threads beyond `corePoolSize` are created only when:
+
+```text
+All core workers are occupied
+AND
+Queue cannot accept another task
+AND
+Current workers < maximumPoolSize
+```
+
+fileciteturn10file0L631-L645
+
+---
+
+# 28. `keepAliveTime`
+
+Example:
+
+```java
+keepAliveTime = 30;
+TimeUnit unit = TimeUnit.SECONDS;
+```
+
+When workers exceed `corePoolSize`, an excess worker can be removed after remaining idle for the keep-alive duration.
+
+```text
+Core workers
+→ normally retained
+
+Extra workers
+→ removed after idle timeout
+```
+
+Core timeout can also be enabled:
+
+```java
+executor.allowCoreThreadTimeOut(true);
+```
+
+fileciteturn10file0L656-L667
+
+---
+
+# 29. The Most Important `ThreadPoolExecutor` Decision Flow
+
+For a typical configuration:
+
+```text
+New task submitted
+        ↓
+worker count < corePoolSize?
+     /            \
+   YES             NO
+    ↓               ↓
+create worker   queue accepts?
+and run task      /      \
+                 YES       NO
+                  ↓         ↓
+                queue    worker < max?
+                           /       \
+                         YES        NO
+                          ↓          ↓
+                    extra worker   reject
+```
+
+### Golden rule
+
+> **Core threads first → queue second → extra threads up to maximum → rejection.**
+
+fileciteturn10file0L668-L681
+
+---
+
+# 30. Example — Core 2, Max 4, Queue 2
+
+Configuration:
 
 ```text
 corePoolSize = 2
+maximumPoolSize = 4
+queueCapacity = 2
 ```
 
-This is the executor's baseline/core worker capacity.
+Assume all tasks stay busy long enough for all submissions to arrive.
 
-For beginner understanding:
+| Task | Result |
+|---|---|
+| Task 1 | Creates worker T1 |
+| Task 2 | Creates worker T2 |
+| Task 3 | Added to queue |
+| Task 4 | Added to queue |
+| Task 5 | Queue full → creates T3 |
+| Task 6 | Queue full → creates T4 |
+| Task 7 | Max workers + full queue → rejected |
 
-> The executor normally maintains core workers to handle tasks.
+State before any task completes:
+
+```text
+Workers: T1 T2 T3 T4
+Queue:   Task 3 Task 4
+```
+
+fileciteturn10file0L682-L701
 
 ---
 
-# 20. `maximumPoolSize`
+# 31. The Unbounded Queue Trap
 
-Example:
+Suppose:
 
 ```text
+corePoolSize = 2
 maximumPoolSize = 5
 ```
 
-This is the maximum worker count the executor can reach under its configured queue/thread-creation behavior.
+and the queue is unbounded.
 
-Important:
+Because the queue never becomes full:
 
-> `maximumPoolSize` does not mean the executor immediately creates that many threads.
+```text
+tasks keep entering queue
+→ pool normally remains at core size
+→ maximumPoolSize may never be used
+```
+
+This is a **very common interview point**. fileciteturn10file0L640-L655
 
 ---
 
-# 21. `keepAliveTime`
+# 32. Queue Types
 
-Example:
-
-```text
-10 TimeUnit.SECONDS
-```
-
-This controls how long eligible idle excess workers can remain before being terminated.
-
-For beginner understanding:
-
-```text
-extra idle worker
-      ↓
-wait for keepAlive period
-      ↓
-terminate if eligible
-```
-
-Whether core workers are affected also depends on the executor configuration.
-
----
-
-# 22. Work Queue — `ArrayBlockingQueue`
-
-The example uses:
+## `ArrayBlockingQueue`
 
 ```java
-new ArrayBlockingQueue<>(2)
+new ArrayBlockingQueue<>(100)
 ```
 
-This is a **bounded queue** with capacity 2.
+Characteristics:
 
 ```text
-[Task][Task]
+Bounded
+Array-backed
+Fixed capacity
+Predictable overload behavior
 ```
 
-Once it becomes full, the executor may create additional workers up to the maximum according to `ThreadPoolExecutor`'s execution rules; after that, the rejection policy applies.
+A bounded queue is useful when memory and overload need explicit limits. fileciteturn10file0L762-L772
+
+## `LinkedBlockingQueue`
+
+```java
+new LinkedBlockingQueue<>();
+```
+
+Characteristics:
+
+```text
+Can be bounded
+Effectively unbounded if capacity is not supplied
+Commonly used by fixed thread pools
+Can accumulate a large backlog
+```
+
+fileciteturn10file0L773-L786
+
+## `SynchronousQueue`
+
+```java
+new SynchronousQueue<>();
+```
+
+Characteristics:
+
+```text
+No internal storage capacity
+Direct handoff to worker
+Associated with cached thread pool behavior
+```
+
+fileciteturn10file0L787-L796
 
 ---
 
-# 23. `ThreadPoolExecutor` Task-Submission Flow
-
-A simplified mental model is:
-
-```text
-New task
-   ↓
-Core worker capacity available?
-   ↓
-Use/create core worker
-   ↓
-If core capacity reached
-   ↓
-Offer task to queue
-   ↓
-Queue accepts?
-   ├── YES → wait in queue
-   └── NO
-        ↓
-Can create worker below maximum?
-   ├── YES → create extra worker
-   └── NO  → reject task
-```
-
-This is the most important conceptual flow for understanding `ThreadPoolExecutor`.
-
----
-
-# 24. Why Queue Choice Matters
-
-The queue strongly influences executor behavior.
-
-Common choices include:
-
-```text
-ArrayBlockingQueue
-LinkedBlockingQueue
-SynchronousQueue
-```
-
-A bounded queue:
-
-```text
-limits queued work
-→ gives explicit overload behavior
-```
-
-An unbounded queue:
-
-```text
-can absorb more tasks
-→ may hide overload
-→ can increase memory use
-```
-
-Therefore queue selection is part of executor design.
-
----
-
-# 25. Rejection Policy
-
-A task can be rejected when:
-
-```text
-pool is at maximum capacity
-        +
-queue cannot accept more tasks
-```
-
-Then a `RejectedExecutionHandler` decides what happens.
-
----
-
-# 26. `AbortPolicy`
-
-Behavior:
-
-```text
-new task
-   ↓
-reject
-   ↓
-RejectedExecutionException
-```
-
-This makes overload visible to the caller.
-
----
-
-# 27. `DiscardPolicy`
-
-Behavior:
-
-```text
-new task
-   ↓
-reject
-   ↓
-silently discard
-```
-
-No exception is thrown for that rejected submission.
-
-Only use it when losing that work is acceptable.
-
----
-
-# 28. `DiscardOldestPolicy`
-
-Behavior:
-
-```text
-Queue full
-   ↓
-remove oldest queued task
-   ↓
-try to submit new task again
-```
+# 33. Fixed Thread Pool Internals
 
 Conceptually:
 
-```text
-Before:
-[A][B][C]
-
-New task D arrives
-
-Remove oldest A
-
-After:
-[B][C][D]
-```
-
-The lecture slides specifically highlight this policy along with `AbortPolicy` and `DiscardPolicy`. fileciteturn9file0L10-L11
-
----
-
-# 29. Other Important Rejection Policy — `CallerRunsPolicy`
-
-A useful additional policy is:
-
 ```java
-ThreadPoolExecutor.CallerRunsPolicy
+Executors.newFixedThreadPool(3)
 ```
 
-When the pool cannot accept the task, the submitting/caller thread executes the task itself.
-
-This can act as a form of **backpressure** because the producer slows down while doing the work.
-
----
-
-# 30. Rejection Policies — Quick Table
-
-| Policy | Behavior |
-|---|---|
-| `AbortPolicy` | Throws `RejectedExecutionException` |
-| `DiscardPolicy` | Silently discards the new task |
-| `DiscardOldestPolicy` | Removes oldest queued task and retries submission |
-| `CallerRunsPolicy` | Caller thread executes the task |
-
----
-
-# 31. Fixed Thread Pool
-
-Convenience factory:
-
-```java
-ExecutorService executor =
-    Executors.newFixedThreadPool(2);
-```
-
-The uploaded `Demo.java` uses this exact pattern. fileciteturn9file4L4-L21
-
-Conceptually:
+uses:
 
 ```text
-FixedThreadPool(2)
-
-Worker-1
-Worker-2
+corePoolSize = 3
+maximumPoolSize = 3
+unbounded LinkedBlockingQueue
 ```
 
-Tasks beyond immediately available workers wait according to the executor's queueing behavior.
-
----
-
-# 32. Why Fixed Thread Pool?
-
-It provides a controlled worker count.
-
-Useful when you want predictable concurrency and do not want a new thread created for every task.
-
-Typical idea:
+Characteristics:
 
 ```text
-number of workers stays fixed
+Fixed number of workers
+Queued tasks wait
+Threads are reused
+No guaranteed completion order
+Queue can grow during sustained overload
 ```
+
+fileciteturn10file0L797-L817
 
 ---
 
-# 33. Cached Thread Pool
-
-Convenience factory:
+# 34. Cached Thread Pool
 
 ```java
 Executors.newCachedThreadPool();
 ```
 
-It is designed for workloads with many short-lived asynchronous tasks and can create/reuse workers dynamically.
-
 Conceptually:
 
 ```text
-short-lived tasks
-     ↓
-reuse idle workers
-     ↓
-create more workers when demand requires
+corePoolSize = 0
+maximumPoolSize = very large
+workQueue = SynchronousQueue
+keepAliveTime ≈ 60 seconds
 ```
 
-It does not have a traditional bounded waiting queue like the fixed-pool model.
-
-### Caution
-
-Under heavy demand it can create a large number of threads, so it should not be used blindly.
-
----
-
-# 34. Fixed vs Cached Thread Pool
-
-| Fixed Thread Pool | Cached Thread Pool |
-|---|---|
-| Fixed worker count | Dynamic worker creation/reuse |
-| More predictable resources | Can grow significantly under bursts |
-| Tasks wait when workers are busy | Designed for short-lived asynchronous tasks |
-| Useful for controlled concurrency | Useful for highly bursty short tasks |
-
----
-
-# 35. Single Thread Executor
-
-Factory:
-
-```java
-Executors.newSingleThreadExecutor();
-```
-
-Conceptually:
+Characteristics:
 
 ```text
-1 worker
-+
-queue
+Creates workers on demand
+Reuses idle workers
+Removes idle workers after keep-alive
+Uses direct handoff
+Can create a very large number of threads
 ```
 
-Tasks submitted to that executor are executed sequentially.
-
-Example:
-
-```text
-Task1
- ↓
-Task2
- ↓
-Task3
- ↓
-Task4
-```
-
-### Use cases
-
-- ordered background processing
-- logging pipelines
-- serialized updates
-- work that must not overlap
-
-This does not make your entire application single-threaded. It only serializes tasks submitted to that executor.
+Suitable for many short-lived tasks, but risky for rapid streams of long-running/blocking tasks because the thread count can grow substantially. fileciteturn10file0L818-L840
 
 ---
 
-# 36. Scheduled Thread Pool
-
-The executor framework also provides:
+# 35. Single-Thread Executor
 
 ```java
-ScheduledThreadPoolExecutor
+ExecutorService executor =
+    Executors.newSingleThreadExecutor();
 ```
 
-and:
+Characteristics:
+
+```text
+One worker
+Sequential task execution
+Internal queue
+Automatic worker replacement when necessary
+Worker reuse
+```
+
+Execution:
+
+```text
+Task 1 → Task 2 → Task 3
+```
+
+Useful for:
+
+```text
+Ordered event processing
+Serial file writing
+Single-consumer workflows
+Resource confinement
+```
+
+Its queue is unbounded, so a slow worker can create a large backlog. fileciteturn10file0L841-L864
+
+---
+
+# 36. Scheduled Executor
 
 ```java
-Executors.newScheduledThreadPool(n)
+ScheduledExecutorService scheduler =
+    Executors.newScheduledThreadPool(2);
 ```
 
-Useful for delayed or periodic execution.
+Supports:
+
+```text
+One-time delayed tasks
+Fixed-rate periodic tasks
+Fixed-delay periodic tasks
+```
+
+It is generally preferred over `Timer` for concurrent scheduled execution. fileciteturn10file0L865-L873
 
 ---
 
 # 37. `schedule()`
 
-Example:
-
 ```java
 scheduler.schedule(
-    () -> System.out.println("Hello"),
+    () -> System.out.println("Executed after 2 seconds"),
     2,
     TimeUnit.SECONDS
 );
@@ -851,746 +1047,1170 @@ scheduler.schedule(
 Meaning:
 
 ```text
+Submit task
+   ↓
 wait 2 seconds
-     ↓
-run task
+   ↓
+run once
 ```
 
-The lecture slide shows this delayed-execution model. fileciteturn9file0L10-L11
+The delay is relative to the submission time. fileciteturn10file0L874-L883
 
 ---
 
 # 38. `scheduleAtFixedRate()`
 
-Example:
-
 ```java
 scheduler.scheduleAtFixedRate(
-    task,
+    () -> System.out.println("Running"),
     0,
     2,
     TimeUnit.SECONDS
 );
 ```
 
-Conceptually:
+The intended start times follow a fixed schedule:
 
 ```text
-initial delay
-   ↓
-run
-   ↓
-run again according to fixed-rate scheduling
-   ↓
-repeat
+initialDelay
+initialDelay + period
+initialDelay + 2 × period
+...
+```
+
+If one run takes longer than the period, the next execution starts late; executions of the same periodic task do not overlap with one another. fileciteturn10file0L884-L904
+
+### Good for
+
+```text
+Regular metrics collection
+Periodic polling
+Regular cadence jobs
 ```
 
 ---
 
 # 39. `scheduleWithFixedDelay()`
 
-Another important scheduled method:
+```java
+scheduler.scheduleWithFixedDelay(
+    () -> System.out.println("Running"),
+    0,
+    2,
+    TimeUnit.SECONDS
+);
+```
+
+The delay is measured after the previous execution finishes.
+
+Example:
+
+```text
+Task duration = 5s
+Delay = 2s
+
+Start 1 = 0s
+End 1   = 5s
+Start 2 = 7s
+```
+
+fileciteturn10file0L905-L928
+
+### Good for
+
+```text
+Cleanup
+Retry work
+Background jobs where a pause is needed after completion
+```
+
+---
+
+# 40. Fixed Rate vs Fixed Delay
+
+| Feature | Fixed Rate | Fixed Delay |
+|---|---|---|
+| Basis | Planned start times | Previous completion |
+| Tries to maintain frequency | Yes | No |
+| Waits after task finishes | Not necessarily | Yes |
+| Same task overlaps itself | No | No |
+| Typical use | Metrics/polling | Cleanup/retry |
+
+fileciteturn10file0L929-L945
+
+### Easy memory trick
+
+```text
+Fixed Rate
+→ regular schedule
+
+Fixed Delay
+→ wait after previous completion
+```
+
+---
+
+# 41. Exception in Periodic Tasks
+
+If a periodic task throws an uncaught exception, later executions of that periodic task are suppressed.
+
+Therefore, when the periodic job must continue after expected failures, handle those failures inside the task.
 
 ```java
-scheduleWithFixedDelay()
+scheduler.scheduleAtFixedRate(() -> {
+    try {
+        performScheduledWork();
+    } catch (Exception exception) {
+        System.out.println(
+            "Scheduled task failed: " +
+            exception.getMessage()
+        );
+    }
+}, 0, 10, TimeUnit.SECONDS);
 ```
 
-Conceptually:
+fileciteturn10file0L950-L964
+
+---
+
+# 42. Rejection Policies
+
+A task may be rejected when:
 
 ```text
-run task
-   ↓
-wait for task to finish
-   ↓
-wait for delay
-   ↓
-run again
+Executor is shut down
+OR
+Pool is at maximum size
+AND
+Bounded queue is full
 ```
 
-So:
+The `RejectedExecutionHandler` decides what happens next. fileciteturn10file0L965-L970
+
+---
+
+# 43. `AbortPolicy`
+
+Default policy:
+
+```java
+new ThreadPoolExecutor.AbortPolicy();
+```
+
+Behavior:
 
 ```text
-scheduleAtFixedRate
-→ fixed-rate style scheduling
+Reject task
+   ↓
+throw RejectedExecutionException
+```
 
-scheduleWithFixedDelay
-→ fixed delay AFTER previous completion
+Good when losing work silently is unacceptable. fileciteturn10file0L971-L982
+
+---
+
+# 44. `CallerRunsPolicy`
+
+```java
+new ThreadPoolExecutor.CallerRunsPolicy();
+```
+
+Behavior:
+
+```text
+Executor overloaded
+       ↓
+Submitting thread executes task
+       ↓
+Producer becomes slower
+```
+
+This creates a form of **natural backpressure** because the producer is temporarily busy executing the task instead of submitting more work. fileciteturn10file0L983-L993
+
+### Easy memory trick
+
+> **Pool is full → caller does the work.**
+
+---
+
+# 45. `DiscardPolicy`
+
+```java
+new ThreadPoolExecutor.DiscardPolicy();
+```
+
+Behavior:
+
+```text
+Reject task
+   ↓
+silently drop it
+```
+
+This can cause unnoticed data loss and should only be used when dropping work is explicitly acceptable and monitored. fileciteturn10file0L994-L998
+
+---
+
+# 46. `DiscardOldestPolicy`
+
+```java
+new ThreadPoolExecutor.DiscardOldestPolicy();
+```
+
+Behavior:
+
+```text
+Queue full
+   ↓
+Remove oldest queued task
+   ↓
+Retry submission of new task
+```
+
+Useful when fresh information is more valuable than stale queued work, but dangerous when every task must be processed. fileciteturn10file0L999-L1012
+
+---
+
+# 47. Rejection Policy Comparison
+
+| Policy | Behavior |
+|---|---|
+| `AbortPolicy` | Throws `RejectedExecutionException` |
+| `CallerRunsPolicy` | Caller executes the task |
+| `DiscardPolicy` | Silently drops the new task |
+| `DiscardOldestPolicy` | Removes oldest queued task, then retries |
+
+### Memory trick
+
+```text
+Abort
+→ Fail loudly
+
+CallerRuns
+→ Caller works
+
+Discard
+→ Drop new
+
+DiscardOldest
+→ Drop old queued task
 ```
 
 ---
 
-# 40. Executor Lifecycle
+# 48. Executor Lifecycle
 
-An executor should eventually be shut down when it is no longer needed.
+An executor should be shut down when it is no longer needed.
 
-Basic lifecycle:
+Important methods:
 
-```text
-RUNNING
-   ↓
-shutdown()
-   ↓
-No new tasks
-   ↓
-Existing submitted tasks finish
-   ↓
-TERMINATED
+```java
+shutdown();
+shutdownNow();
+awaitTermination(...);
 ```
 
-The uploaded examples call `shutdown()` after submitting tasks. fileciteturn9file4L15-L24 fileciteturn9file1L19-L34
+Executor worker threads are normally non-daemon threads. An active executor can therefore keep the JVM running after `main()` completes. fileciteturn10file0L457-L461
 
 ---
 
-# 41. `shutdown()`
+# 49. `shutdown()`
 
 ```java
 executor.shutdown();
 ```
 
-Meaning:
+Behavior:
 
-- stop accepting new tasks
-- previously submitted tasks may continue
-- executor eventually terminates after existing work finishes
-
-This is usually the preferred normal shutdown approach.
-
----
-
-# 42. `shutdownNow()`
-
-```java
-executor.shutdownNow();
+```text
+Stops accepting new tasks
+Allows previously accepted tasks to complete
+Initiates orderly shutdown
+Returns immediately
+Does not itself wait for termination
 ```
 
-This is more aggressive/best-effort.
-
-It:
-
-- stops accepting new tasks
-- attempts to interrupt running tasks
-- returns tasks that were queued but never started
-
-### Important
-
-It does **not** forcibly kill arbitrary Java code.
-
-Tasks need to respond appropriately to interruption.
+Submitting a task after shutdown causes `RejectedExecutionException`. fileciteturn10file0L462-L472
 
 ---
 
-# 43. `shutdown()` vs `shutdownNow()`
+# 50. `shutdownNow()`
+
+```java
+List<Runnable> pendingTasks =
+    executor.shutdownNow();
+```
+
+Behavior:
+
+```text
+Stops accepting new tasks
+Removes tasks that have not started
+Returns pending tasks
+Attempts to interrupt running tasks
+```
+
+It does **not** guarantee immediate termination. Running tasks must cooperate with interruption. fileciteturn10file0L473-L482
+
+---
+
+# 51. `shutdown()` vs `shutdownNow()`
 
 | `shutdown()` | `shutdownNow()` |
 |---|---|
-| Graceful | Best-effort aggressive stop |
-| Existing tasks may finish | Attempts to interrupt running tasks |
-| Does not interrupt running work by itself | Interrupts worker threads |
-| Preferred normal shutdown | Useful when urgent stop is required |
+| Graceful | Best-effort aggressive shutdown |
+| Finish accepted tasks | Attempt interruption of running tasks |
+| Reject new tasks | Reject new tasks |
+| Queued tasks can continue | Waiting tasks are returned |
+| Normal choice | Urgent stop use case |
 
 ---
 
-# 44. `invokeAll()`
-
-`ExecutorService` provides:
+# 52. `awaitTermination()`
 
 ```java
-invokeAll()
+boolean terminated =
+    executor.awaitTermination(
+        10,
+        TimeUnit.SECONDS
+    );
 ```
 
-for submitting multiple `Callable` tasks and obtaining their `Future` objects.
+It waits for the executor to terminate for at most the specified duration.
 
-Conceptually:
+Normally use it after:
 
-```text
-List<Callable<T>>
-       ↓
-invokeAll()
-       ↓
-List<Future<T>>
+```java
+shutdown();
 ```
+
+or:
+
+```java
+shutdownNow();
+```
+
+fileciteturn10file0L483-L490
 
 ---
 
-# 45. `invokeAny()`
+# 53. Graceful Shutdown Pattern
 
-`invokeAny()` submits multiple `Callable` tasks and returns a result from one task according to its completion/success semantics.
+```java
+executor.shutdown();
+
+try {
+    if (!executor.awaitTermination(
+            10,
+            TimeUnit.SECONDS)) {
+
+        executor.shutdownNow();
+
+        if (!executor.awaitTermination(
+                10,
+                TimeUnit.SECONDS)) {
+            System.out.println(
+                "Executor did not terminate"
+            );
+        }
+    }
+
+} catch (InterruptedException exception) {
+
+    executor.shutdownNow();
+    Thread.currentThread().interrupt();
+}
+```
 
 Mental model:
 
 ```text
-Task A ─┐
-Task B ─┼──> compete to complete
-Task C ─┘
-          ↓
-     one result returned
+Graceful shutdown
+      ↓
+wait
+      ↓
+Terminated?
+  /        \
+YES         NO
+ |           |
+done     shutdownNow()
+             ↓
+          wait again
 ```
 
-Useful when any one successful answer is sufficient.
+fileciteturn10file0L491-L514
 
 ---
 
-# 46. `Future` as a Ticket
+# 54. Preserve Interruption
 
-A good mental model:
+Do not silently ignore `InterruptedException`.
 
-> **Future = a ticket/handle for a result that may be available later.**
+### Bad
+
+```java
+try {
+    Thread.sleep(1000);
+} catch (InterruptedException exception) {
+    // ignored
+}
+```
+
+### Better
+
+```java
+try {
+    Thread.sleep(1000);
+} catch (InterruptedException exception) {
+    Thread.currentThread().interrupt();
+    return;
+}
+```
+
+Restoring the interrupt flag allows higher-level code to observe the cancellation request. fileciteturn10file0L1078-L1097
+
+---
+
+# 55. `invokeAll()`
+
+`invokeAll()` submits a collection of `Callable` tasks and waits until all of them complete.
+
+```java
+List<Callable<Integer>> tasks = List.of(
+    () -> 10,
+    () -> 20,
+    () -> 30
+);
+
+List<Future<Integer>> futures =
+    executor.invokeAll(tasks);
+```
+
+Then:
+
+```java
+for (Future<Integer> future : futures) {
+    System.out.println(future.get());
+}
+```
+
+Important points:
 
 ```text
-submit()
-   ↓
-Future<T>
-   ↓
-background computation
-   ↓
-future.get()
-   ↓
-result
+Blocks until all tasks complete
+Returns one Future for each task
+Future list follows input order
+A task may complete successfully or exceptionally
 ```
+
+fileciteturn10file0L515-L539
 
 ---
 
-# 47. Thread Pool Executor — Complete Mental Model
+# 56. `invokeAny()`
 
-```text
-                New Task
-                   ↓
-            ExecutorService
-                   ↓
-          ThreadPoolExecutor
-                   ↓
-          ┌────────┴────────┐
-          ↓                 ↓
-    Worker Threads      Work Queue
-          ↓                 ↓
-       Execute         Waiting Tasks
-          │                 │
-          └────── consume ──┘
+`invokeAny()` submits multiple `Callable` tasks and returns one successful result.
+
+```java
+Integer result = executor.invokeAny(tasks);
 ```
+
+Once a successful result is available, unfinished tasks are cancelled.
+
+Useful when multiple independent sources can produce an acceptable answer.
+
+Example:
+
+```java
+List<Callable<String>> servers = List.of(
+    () -> callServerA(),
+    () -> callServerB(),
+    () -> callServerC()
+);
+
+String response = executor.invokeAny(servers);
+```
+
+It returns the **first successful result**, not necessarily the first task that terminates. fileciteturn10file0L540-L558
 
 ---
 
-# 48. `ThreadPoolExecutor` Decision Flow
+# 57. `invokeAll()` vs `invokeAny()`
 
-```text
-Task arrives
-    ↓
-Core worker capacity available?
-   /                  \
- YES                  NO
-  ↓                     ↓
-use/create core      queue task
-                        ↓
-                    queue full?
-                    /        \
-                  NO          YES
-                  ↓             ↓
-              wait in       below max?
-               queue         /      \
-                           YES       NO
-                            ↓         ↓
-                       extra worker reject
-                                      ↓
-                              rejection policy
-```
-
-This is a simplified teaching model; exact behavior depends on the executor's queue and configuration.
+| `invokeAll()` | `invokeAny()` |
+|---|---|
+| Wait for all | Return one successful result |
+| Returns all Futures | Returns one result |
+| Useful when every result matters | Useful when any success is enough |
+| Preserves input order in Future list | Chooses based on successful completion |
 
 ---
 
-# 49. Production Perspective
+# 58. CPU-Bound vs I/O-Bound Tasks
 
-A good production thread-pool design asks:
+Pool sizing depends on workload.
 
-```text
-1. How expensive are the tasks?
-2. CPU-bound or I/O-bound?
-3. How much concurrency is safe?
-4. How large should the queue be?
-5. What happens when the system is overloaded?
-6. What rejection policy is appropriate?
-7. How will shutdown be handled?
-```
-
-Thread-pool sizing and queue choice are system-design decisions.
-
----
-
-# 50. CPU-Bound vs I/O-Bound Tasks
-
-## CPU-bound
+## CPU-Bound
 
 Examples:
 
 ```text
-calculations
-compression
-image processing
-complex algorithms
+Image processing
+Compression
+Encryption
+Numerical calculations
 ```
 
-Too many workers can increase CPU contention and reduce efficiency.
+Too many threads usually increase scheduling overhead without creating more CPU capacity. fileciteturn10file0L1039-L1058
 
-## I/O-bound
+## I/O-Bound
 
 Examples:
 
 ```text
-database calls
-network requests
-file operations
-remote APIs
+Database calls
+Network calls
+File operations
 ```
 
-Workers may spend time waiting, so a higher degree of concurrency can sometimes make sense.
+Some additional concurrency can help because threads may spend time waiting.
 
-The correct pool size depends on the workload and environment.
-
----
-
-# 51. Why Bounded Queues Can Be Useful
-
-Suppose:
+But the pool must still respect:
 
 ```text
-workers full
-+
-queue unlimited
+Database connection limits
+Remote service limits
+Memory limits
+Downstream capacity
 ```
 
-The system can keep accepting tasks while memory usage grows.
+fileciteturn10file0L1059-L1066
 
-With a bounded queue:
+---
+
+# 59. Prefer Bounded Resources in Production
+
+A production executor should normally have explicit limits around:
 
 ```text
-workers full
-+
-queue full
-     ↓
-backpressure / rejection
+Queue capacity
+Maximum worker count
+Submission rate
+Task timeout
+Rejection behavior
+Downstream concurrency
 ```
 
-This makes overload behavior explicit.
+An unbounded queue can simply move overload from:
+
+```text
+Thread creation
+```
+
+to:
+
+```text
+Memory consumption
+```
+
+fileciteturn10file0L1067-L1077
 
 ---
 
-# 52. Common Beginner Mistakes
+# 60. Thread Naming
 
-### Mistake 1
+Meaningful worker names help with debugging and production logs.
 
-> Executor Framework means threads are no longer used.
+Example:
 
-❌ Wrong.
+```java
+AtomicInteger counter = new AtomicInteger();
 
-The framework still uses threads; it manages them for you.
+ThreadFactory threadFactory = task -> {
+    Thread thread = new Thread(task);
+    thread.setName(
+        "order-worker-" +
+        counter.incrementAndGet()
+    );
+    return thread;
+};
+```
 
-### Mistake 2
+Example names:
 
-> One task always gets a brand-new thread.
+```text
+order-worker-1
+order-worker-2
+order-worker-3
+```
 
-❌ Wrong.
-
-Thread pools reuse worker threads.
-
-### Mistake 3
-
-> `submit()` immediately gives the result.
-
-❌ Wrong.
-
-It returns a `Future` that represents a result that may become available later.
-
-### Mistake 4
-
-> `Future.get()` never blocks.
-
-❌ Wrong.
-
-It may block until the result is ready.
-
-### Mistake 5
-
-> More worker threads always improve performance.
-
-❌ Wrong.
-
-Too many workers can increase context switching and contention.
-
-### Mistake 6
-
-> `shutdownNow()` forcibly kills every task.
-
-❌ Wrong.
-
-It is best-effort and uses interruption for running tasks.
-
-### Mistake 7
-
-> Fixed thread pool means tasks cannot be queued.
-
-❌ Wrong.
-
-Tasks can wait for available workers.
-
-### Mistake 8
-
-> An unbounded queue is always better because it avoids rejection.
-
-❌ Wrong.
-
-It can hide overload and increase memory consumption.
+The reference notes demonstrate this exact `ThreadFactory` approach. fileciteturn10file0L1098-L1107
 
 ---
 
-# 53. Fresher Interview Questions
+# 61. Monitor the Executor
 
-## Q1. Why do we use the Executor Framework?
+Useful `ThreadPoolExecutor` metrics include:
 
-To separate task submission from thread management and efficiently reuse worker threads rather than manually creating a thread for every task.
+```java
+executor.getPoolSize();
+executor.getActiveCount();
+executor.getQueue().size();
+executor.getCompletedTaskCount();
+executor.getTaskCount();
+executor.getLargestPoolSize();
+```
 
-## Q2. What is a thread pool?
+These help answer:
 
-A collection of reusable worker threads that execute submitted tasks.
+```text
+Is the queue continuously growing?
+Is the pool regularly reaching maximum size?
+Are tasks completing fast enough?
+Is the executor frequently overloaded?
+```
 
-## Q3. Difference between `Executor` and `ExecutorService`?
+fileciteturn10file0L1123-L1135
 
-`Executor` provides basic task execution through `execute()`; `ExecutorService` adds richer submission and lifecycle-management APIs.
+---
 
-## Q4. Difference between `execute()` and `submit()`?
+# 62. Complete Production-Style Example
+
+```java
+ThreadPoolExecutor executor =
+    new ThreadPoolExecutor(
+        2,
+        4,
+        30,
+        TimeUnit.SECONDS,
+        new ArrayBlockingQueue<>(10),
+        new ThreadPoolExecutor.CallerRunsPolicy()
+    );
+
+Future<String> future = executor.submit(() -> {
+
+    System.out.println(
+        "Processing order on " +
+        Thread.currentThread().getName()
+    );
+
+    Thread.sleep(1000);
+
+    return "ORDER_PROCESSED";
+});
+
+try {
+
+    String result = future.get();
+    System.out.println(result);
+
+} catch (InterruptedException exception) {
+
+    Thread.currentThread().interrupt();
+
+} catch (ExecutionException exception) {
+
+    System.out.println(
+        "Order failed: " +
+        exception.getCause().getMessage()
+    );
+
+} finally {
+
+    executor.shutdown();
+}
+```
+
+This combines:
+
+```text
+Explicit pool configuration
+Bounded queue
+Overload handling
+Callable/value-returning task
+Future result
+Exception handling
+Proper shutdown
+```
+
+The reference material presents the same overall controlled order-processing pattern. fileciteturn10file0L1136-L1196
+
+---
+
+# 63. Major Interview Question — Why Use Executor Framework?
+
+### Answer
+
+> The Executor Framework separates task submission from thread management and allows tasks to run on reusable worker threads, providing controlled concurrency, task queuing, result tracking, cancellation, lifecycle management, and scheduling.
+
+---
+
+# 64. Major Interview Question — `execute()` vs `submit()`
 
 ```text
 execute()
 → Runnable
 → no Future
+→ fire-and-forget
 
 submit()
 → Runnable / Callable
 → Future
+→ result/cancellation/completion tracking
 ```
 
-## Q5. Difference between `Runnable` and `Callable`?
+---
+
+# 65. Major Interview Question — Runnable vs Callable
 
 ```text
 Runnable
 → run()
-→ no result
+→ void
+→ cannot declare checked exceptions
 
 Callable<T>
 → call()
 → returns T
-→ can throw checked exceptions
+→ checked exceptions allowed
 ```
 
-## Q6. What is a Future?
+---
 
-A handle representing the result/status of an asynchronous computation.
+# 66. Major Interview Question — What Is a Future?
 
-## Q7. Is `Future.get()` blocking?
+> A `Future` is a handle representing the result or completion state of an asynchronous computation.
 
-It can be, when the result is not ready.
+Remember:
 
-## Q8. What is `ThreadPoolExecutor`?
+```text
+submit()
+→ Future
+→ task runs
+→ get()
+→ result
+```
 
-A configurable `ExecutorService` implementation for managing workers, queues, and task rejection.
+---
 
-## Q9. What is `corePoolSize`?
+# 67. Major Interview Question — Is `Future.get()` Blocking?
 
-The baseline/core worker capacity.
+**Yes.**
 
-## Q10. What is `maximumPoolSize`?
+If the result is not ready, the caller waits.
 
-The maximum worker count the executor can reach under its configured execution rules.
+---
 
-## Q11. What is `keepAliveTime`?
+# 68. Major Interview Question — Core vs Maximum Pool Size
 
-The idle period after which eligible excess workers can terminate.
+Most important rule:
 
-## Q12. What happens when the pool and queue are both saturated?
+```text
+1. Fill core threads
+2. Fill queue
+3. Create extra workers up to maximum
+4. Reject if both are full
+```
 
-The configured rejection policy is invoked.
+Do not think:
 
-## Q13. What is `AbortPolicy`?
+```text
+core = 2, max = 5
+→ immediately create 5 threads
+```
 
-Reject the task and throw `RejectedExecutionException`.
+That is incorrect.
 
-## Q14. What is `DiscardPolicy`?
+---
 
-Silently discard the rejected task.
+# 69. Major Interview Question — Why Does Queue Type Matter?
 
-## Q15. What is `DiscardOldestPolicy`?
+Because it affects:
 
-Remove the oldest queued task and retry submission of the new task.
+```text
+Memory
+Latency
+Maximum concurrency
+Pool growth
+Overload behavior
+Rejection behavior
+```
 
-## Q16. Difference between `shutdown()` and `shutdownNow()`?
+A queue is part of the executor's concurrency policy.
+
+---
+
+# 70. Major Interview Question — Why Can an Unbounded Queue Prevent Maximum Pool Growth?
+
+Because the executor normally creates threads beyond the core size only after the queue cannot accept the task.
+
+If the queue is effectively unbounded:
+
+```text
+queue never full
+→ extra workers not needed
+→ pool often remains at core size
+```
+
+---
+
+# 71. Major Interview Question — Shutdown Methods
 
 ```text
 shutdown()
-→ graceful
+→ stop new submissions
+→ finish accepted tasks
 
 shutdownNow()
-→ best-effort interruption + returns queued tasks
+→ stop new submissions
+→ return waiting tasks
+→ attempt interruption of running tasks
+
+awaitTermination()
+→ wait for termination
 ```
-
-## Q17. What is a fixed thread pool?
-
-An executor designed around a fixed worker count.
-
-## Q18. What is a single-thread executor?
-
-An executor with one worker that processes submitted tasks sequentially.
-
-## Q19. What is a scheduled thread pool?
-
-An executor that supports delayed and periodic task execution.
-
-## Q20. Why not create a new thread for every task?
-
-Because thread creation, memory usage, scheduling, and context switching can become expensive at scale.
 
 ---
 
-# 54. Master Comparison Table
+# 72. Major Interview Question — What Is Backpressure?
 
-| Concept | Main Purpose |
+Backpressure means slowing or limiting producers when the execution system is overloaded.
+
+A bounded queue + rejection policy can provide explicit overload behavior.
+
+`CallerRunsPolicy` can create natural backpressure by making the submitting thread execute the task. fileciteturn10file0L983-L992
+
+---
+
+# 73. Common Beginner Mistakes
+
+### Mistake 1
+
+> Executor Framework means no threads are used.
+
+❌ Wrong.
+
+Threads are still used; the framework manages them at a higher level.
+
+### Mistake 2
+
+> One new thread is created for every task.
+
+❌ Wrong for a thread-pool executor.
+
+Workers are reused.
+
+### Mistake 3
+
+> `submit()` immediately gives the result.
+
+❌ No. It gives a `Future`.
+
+### Mistake 4
+
+> `Future.get()` is always asynchronous.
+
+❌ No. It may block.
+
+### Mistake 5
+
+> `maximumPoolSize` means the pool immediately creates that many workers.
+
+❌ No.
+
+Core → queue → extra workers → rejection.
+
+### Mistake 6
+
+> More threads always improve performance.
+
+❌ No.
+
+Too many threads can increase scheduling/context-switching overhead.
+
+### Mistake 7
+
+> `shutdownNow()` instantly kills all running tasks.
+
+❌ No.
+
+It is best-effort interruption.
+
+### Mistake 8
+
+> Ignoring `InterruptedException` is harmless.
+
+❌ No.
+
+Preserve the interruption signal when appropriate.
+
+### Mistake 9
+
+> An unbounded queue solves overload.
+
+❌ No.
+
+The backlog can consume increasing memory.
+
+### Mistake 10
+
+> Fixed-rate and fixed-delay scheduling are the same.
+
+❌ No.
+
+Fixed rate is schedule-oriented; fixed delay is completion-oriented.
+
+---
+
+# 74. Master Comparison Table
+
+| Mechanism | Main Idea |
 |---|---|
-| `Thread` | Manual thread management |
-| `Executor` | Basic task execution |
-| `ExecutorService` | Task execution + lifecycle/control |
-| `ThreadPoolExecutor` | Fine-grained configurable thread pool |
-| Fixed Thread Pool | Controlled worker count |
-| Cached Thread Pool | Dynamic worker reuse/growth for suitable short tasks |
-| Single Thread Executor | Sequential task execution |
-| Scheduled Thread Pool | Delayed/periodic execution |
-| `Runnable` | Task without a return result |
-| `Callable<T>` | Task with a return result |
-| `Future<T>` | Handle for an asynchronous result |
+| Raw `Thread` | Low-level thread creation/management |
+| `Executor` | Abstraction for executing `Runnable` |
+| `ExecutorService` | Execution + lifecycle + results + bulk operations |
+| `ThreadPoolExecutor` | Configurable thread-pool implementation |
+| `execute()` | Submit `Runnable` without Future |
+| `submit()` | Submit task and receive Future |
+| `Runnable` | No result |
+| `Callable<T>` | Returns result and may throw checked exceptions |
+| `Future` | Tracks result/completion/cancellation |
+| Fixed pool | Fixed workers + queue |
+| Cached pool | On-demand workers + direct handoff |
+| Single-thread executor | Sequential execution with one worker |
+| Scheduled executor | Delayed and periodic execution |
+| `invokeAll()` | Wait for all task results |
+| `invokeAny()` | Return one successful result |
+| `shutdown()` | Graceful shutdown |
+| `shutdownNow()` | Best-effort interruption + return pending tasks |
 
 ---
 
-# 55. Connection With Previous Lectures
-
-### Lecture 1
+# 75. Complete Executor Framework Mental Model
 
 ```text
-Process
-Thread
-Concurrency
-Parallelism
-```
-
-### Lecture 2
-
-```text
-Thread creation
-Runnable
-start() vs run()
-Thread lifecycle
-```
-
-### Lecture 3
-
-```text
-sleep()
-join()
-interrupt()
-thread identity
-priority
-daemon threads
-```
-
-### Lecture 4
-
-```text
-Race condition
-Atomicity
-Visibility
-Ordering
-```
-
-### Lecture 5
-
-```text
-synchronized
-Monitor
-Critical section
-```
-
-### Lecture 6
-
-```text
-wait()
-notify()
-notifyAll()
-Producer-Consumer
-```
-
-### Lecture 7
-
-```text
-ReentrantLock
-ReadWriteLock
-StampedLock
-Semaphore
-Condition
-```
-
-### Lecture 8–9
-
-```text
-Atomic variables
-CAS
-Lock-free concurrency
-ABA
-Versioning
-```
-
-### Lecture 10
-
-```text
-Task management at scale
-Thread pools
-Future
-ExecutorService
-ThreadPoolExecutor
-Scheduling
-Shutdown
-Rejection
-```
-
-So the progression is:
-
-```text
-Threads
-  ↓
-Thread management
-  ↓
-Synchronization
-  ↓
-Lock-free techniques
-  ↓
-Executor Framework
-  ↓
-Production-scale task execution
+                   APPLICATION
+                        │
+                        ↓
+                      TASK
+               Runnable / Callable
+                        │
+               execute() / submit()
+                        │
+                        ↓
+                 ExecutorService
+                        │
+                        ↓
+                 ThreadPoolExecutor
+                        │
+           ┌────────────┴────────────┐
+           │                         │
+      Worker Threads             Work Queue
+           │                         │
+       ┌───┼───┐                     │
+       │   │   │                  waiting
+      W1  W2  W3                   tasks
+       │   │   │                     │
+       └───┼───┘                     │
+           │                         │
+           └────── consume ──────────┘
+                        │
+                        ↓
+                   TASK EXECUTES
+                        │
+                  ┌─────┴─────┐
+                  │           │
+               Runnable     Callable
+                  │           │
+                 void        result
+                              │
+                            Future
+                              │
+                            get()
+                              │
+                            result
 ```
 
 ---
 
-# ⭐ Lecture 10 — Must Remember
+# 76. Executor Framework Decision Tree
 
 ```text
-1. Thread-per-task designs do not scale indefinitely.
+Need to run a task?
+       ↓
+Runnable or Callable
+       ↓
+Need result / cancellation / completion tracking?
+       │
+   ┌───┴────┐
+  YES      NO
+   │         │
+submit()   execute()
+   │
+ Future
+```
 
-2. Threads have meaningful memory and scheduling overhead.
+For pool design:
 
-3. Too many threads can cause excessive context switching.
+```text
+Need controlled workers?
+        ↓
+ThreadPoolExecutor / fixed pool
 
-4. Executor Framework separates task submission from thread management.
+Need dynamic short-lived task execution?
+        ↓
+Cached pool (with care)
 
-5. Thread pools reuse worker threads.
+Need strict sequential task execution?
+        ↓
+Single-thread executor
 
-6. Work queues hold tasks waiting for workers.
+Need delayed/periodic execution?
+        ↓
+Scheduled executor
+```
 
-7. Executor → basic task-execution abstraction.
+---
 
-8. ExecutorService → task execution + lifecycle/control.
+# 77. Production Design Checklist
 
-9. ThreadPoolExecutor → configurable thread-pool implementation.
+Before creating an executor, ask:
 
-10. execute() → Runnable, no Future.
+```text
+1. CPU-bound or I/O-bound?
+2. How many tasks can arrive?
+3. How long do tasks run?
+4. How much blocking occurs?
+5. How many concurrent tasks can downstream services support?
+6. What should the queue capacity be?
+7. What should maximum worker count be?
+8. What should happen under overload?
+9. How will tasks be cancelled?
+10. How will the executor be shut down?
+11. Should worker threads have meaningful names?
+12. What metrics will be monitored?
+```
 
-11. submit() → Runnable/Callable, returns Future.
+---
 
-12. Runnable → no result.
+# 78. ⭐ Lecture 10 — Must Remember
 
-13. Callable<T> → returns T and can throw checked exceptions.
+```text
+1. Do not create one thread per task blindly.
 
-14. Future → handle for an asynchronous result.
+2. Threads have memory and scheduling overhead.
 
-15. Future.get() may block.
+3. Thread pools reuse worker threads.
 
-16. corePoolSize → baseline worker capacity.
+4. Executor separates task submission from execution policy.
 
-17. maximumPoolSize → upper worker limit under configuration.
+5. Executor is an abstraction; it does not necessarily create a new thread.
 
-18. keepAliveTime → idle time for eligible excess workers.
+6. ExecutorService adds lifecycle, results, cancellation, and bulk operations.
 
-19. Queue choice affects pool behavior.
+7. execute() → Runnable, no Future.
 
-20. Saturation triggers the rejection policy.
+8. submit() → Runnable/Callable, returns Future.
 
-21. AbortPolicy → throws exception.
+9. Runnable → no result.
 
-22. DiscardPolicy → silently drops the new task.
+10. Callable<T> → result + checked exceptions.
 
-23. DiscardOldestPolicy → removes oldest queued task and retries.
+11. Future.get() can block.
 
-24. shutdown() → graceful shutdown.
+12. future.cancel(true) is cooperative interruption, not forced termination.
 
-25. shutdownNow() → best-effort interruption + queued tasks returned.
+13. ThreadPoolExecutor is the configurable thread-pool engine.
 
-26. FixedThreadPool → fixed worker count.
+14. corePoolSize = core worker count.
 
-27. CachedThreadPool → dynamic worker reuse/growth.
+15. maximumPoolSize = upper worker limit under the pool rules.
 
-28. SingleThreadExecutor → sequential tasks.
+16. keepAliveTime = idle timeout for eligible excess workers.
 
-29. ScheduledThreadPool → delayed/periodic execution.
+17. Queue choice strongly affects behavior.
 
-30. More threads do NOT automatically mean better performance.
+18. Core threads are created as work arrives by default.
+
+19. Typical flow:
+    core workers → queue → extra workers → rejection.
+
+20. An unbounded queue can prevent growth beyond corePoolSize.
+
+21. Fixed pool → fixed workers + unbounded queue.
+
+22. Cached pool → on-demand workers + SynchronousQueue.
+
+23. Single-thread executor → sequential execution.
+
+24. Scheduled executor → delayed/periodic execution.
+
+25. Fixed rate uses planned schedule.
+
+26. Fixed delay waits after completion.
+
+27. Periodic tasks with uncaught exceptions stop future executions.
+
+28. AbortPolicy → throw exception.
+
+29. CallerRunsPolicy → caller executes task.
+
+30. DiscardPolicy → silently drop new task.
+
+31. DiscardOldestPolicy → remove oldest queued task and retry.
+
+32. shutdown() → orderly shutdown.
+
+33. shutdownNow() → best-effort interruption + return pending tasks.
+
+34. awaitTermination() → wait for termination.
+
+35. Preserve interruption correctly.
+
+36. Prefer bounded resources when overload must be controlled.
+
+37. More threads do not automatically mean more performance.
+
+38. CPU-bound and I/O-bound workloads need different pool-sizing strategies.
+
+39. Name worker threads for debugging.
+
+40. Monitor pool metrics for queue growth and overload.
 ```
 
 ---
 
 # 🔥 One-Minute Revision
 
-> **The Executor Framework solves the scalability and management problems of creating a separate thread for every task. Instead of manually managing threads, we submit `Runnable` or `Callable` tasks to an `ExecutorService`, which manages reusable worker threads and a work queue. `execute()` is used for `Runnable` tasks without a `Future`, while `submit()` can accept `Runnable` or `Callable` and returns a `Future`. `Callable` can return a result, and `Future.get()` retrieves it but may block the caller. `ThreadPoolExecutor` provides detailed control through core pool size, maximum pool size, keep-alive time, work queue, and rejection policy. Fixed, cached, single-thread, and scheduled executors provide common configurations. Proper shutdown is essential. The main lesson is: think in terms of submitting units of work to a controlled execution system instead of creating one thread per task.**
+> **The Executor Framework is a higher-level Java concurrency system that separates task submission from thread management. Instead of creating one thread for every task, we submit `Runnable` or `Callable` tasks to an `ExecutorService`, which can use reusable worker threads and a work queue. `execute()` accepts a `Runnable` and returns nothing, while `submit()` can accept `Runnable` or `Callable` and returns a `Future`. `Callable` can return a value and throw checked exceptions. `Future.get()` retrieves the result but can block. `ThreadPoolExecutor` provides detailed control through core pool size, maximum pool size, keep-alive time, work queue, thread factory, and rejection handler. The key pool decision order is core threads first, then queue, then extra workers up to maximum, then rejection. Fixed, cached, single-thread, and scheduled executors serve different workload patterns. `shutdown()` provides orderly shutdown, `shutdownNow()` attempts interruption, and `awaitTermination()` can wait for termination. In production, queue capacity, worker limits, rejection behavior, interruption handling, downstream limits, thread naming, and monitoring must be deliberate design decisions.**
 
 ---
 
-# 📌 Final Concept Map
+# 📌 Final Takeaway
+
+The Executor Framework is **not simply a shorter way to create threads**.
+
+It provides a complete task-execution system with:
 
 ```text
-                      EXECUTOR FRAMEWORK
-                              │
-                 ┌────────────┴────────────┐
-                 │                         │
-               TASKS                   THREAD POOL
-                 │                         │
-          ┌──────┴──────┐            reusable workers
-          │             │                    │
-      Runnable       Callable                │
-          │             │                    │
-        void          result                  │
-          │             │                    │
-          └──────┬──────┘                    │
-                 ↓                           │
-            ExecutorService ←───────────────┘
-                 │
-       ┌─────────┼───────────────┐
-       │         │               │
-    execute    submit        scheduling
-       │         │               │
-       │       Future        ScheduledPool
-       │         │
-       │       get()
-       │         │
-       │      result
-       │
-       ↓
-ThreadPoolExecutor
-       │
-  ┌────┼───────────────┐
-  ↓    ↓               ↓
-core  max             queue
-pool  pool              │
-                        ↓
-                 rejection policy
+Thread Reuse
+Controlled Concurrency
+Task Queuing
+Asynchronous Results
+Cancellation
+Lifecycle Management
+Scheduling
+Overload Handling
 ```
 
-## Lecture 10 Core Principle
+The most important mental shift is:
 
-> **Don't think “one task = one thread.” Think “one task = a unit of work submitted to an execution system.” The Executor Framework decides how worker threads, queues, scheduling, results, shutdown, and overload are managed.**
+```text
+OLD THINKING
+"I need to create a thread."
 
-## Next Direction
+NEW THINKING
+"I need to submit a task to an execution policy."
+```
 
-The next natural step after this lecture is to understand how executors behave under real workload conditions: queue saturation, task cancellation, `Future` cancellation, graceful shutdown, and more advanced asynchronous composition.
+This is the core foundation of using Java's concurrency utilities effectively.
