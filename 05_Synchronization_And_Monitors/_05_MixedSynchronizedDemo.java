@@ -1,7 +1,7 @@
 public class _05_MixedSynchronizedDemo {
     public static void main(String[] args) {
         
-        Test test = new Test();
+        MixedLockResource test = new MixedLockResource();
 
         Thread t1 = new Thread(() -> test.m1());
 
@@ -12,9 +12,9 @@ public class _05_MixedSynchronizedDemo {
     }
 }
 
-class Test {
+class MixedLockResource {
     static void m1() {
-        synchronized(Test.class) {
+        synchronized(MixedLockResource.class) {
             System.out.println("m1 entered");
 
             try {

@@ -1,7 +1,7 @@
 public class _01_SynchronizedMethodDemo {
     public static void main(String[] args) {
 
-        Test test = new Test();
+        SyncMethodResource test = new SyncMethodResource();
 
         Thread t1 = new Thread(() -> test.show());
 
@@ -12,7 +12,7 @@ public class _01_SynchronizedMethodDemo {
     }
 }
 
-class Test {
+class SyncMethodResource {
 
     synchronized void show() {
         System.out.println(Thread.currentThread().getName() + "Inside show");

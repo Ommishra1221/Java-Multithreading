@@ -1,9 +1,9 @@
 public class _04_StaticSynchronizedDemo {
     public static void main(String[] args) {
 
-        Thread t1 = new Thread(() -> Counter.increment());
+        Thread t1 = new Thread(() -> StaticSyncCounter.increment());
 
-        Thread t2 = new Thread(() -> Counter.increment());
+        Thread t2 = new Thread(() -> StaticSyncCounter.increment());
 
         t1.start();
         t2.start();
@@ -12,12 +12,12 @@ public class _04_StaticSynchronizedDemo {
 
 // Static Synchronization
 
-class Counter {
+class StaticSyncCounter {
 
     static int count = 0;
 
     static void increment() {
-        synchronized(Counter.class) {
+        synchronized(StaticSyncCounter.class) {
             try {
                 Thread.sleep(2000);
             }

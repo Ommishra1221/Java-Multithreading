@@ -1,7 +1,7 @@
 public class _01_SynchronizedDemo {
     public static void main(String[] args) throws InterruptedException {
 
-        Counter c1 = new Counter();
+        SyncCounter c1 = new SyncCounter();
 
         Thread t1 = new Thread(() -> {
             for(int i=1; i<=10000; i++) {
@@ -25,7 +25,7 @@ public class _01_SynchronizedDemo {
     }
 }
 
-class Counter {
+class SyncCounter {
     public int count = 0;
 
     void increment() {

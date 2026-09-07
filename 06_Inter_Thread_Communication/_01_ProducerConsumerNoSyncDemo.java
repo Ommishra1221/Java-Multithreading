@@ -1,24 +1,24 @@
-public class _03_ProducerConsumerWaitNotifyDemo {
+public class _01_ProducerConsumerNoSyncDemo {
     public static void main(String[] args) {
-        Box box = new Box();
+        UnsyncBox box = new UnsyncBox();
 
         Thread t1 = new Thread(() -> {
             for(int i=1; i<=20; i++) {
                 try{
                     Thread.sleep(100);
-                    box.producer(i);
                 }
                 catch(Exception e) {}
+                box.producer(i);
             }
         });
 
         Thread t2 = new Thread(() -> {
             for(int i=1; i<=20; i++) {
                 try{
-                    Thread.sleep(100);
-                    box.consumer();
+                    Thread.sleep(70);
                 }
                 catch(Exception e) {}
+                box.consumer();
             }
         });
 
@@ -27,31 +27,19 @@ public class _03_ProducerConsumerWaitNotifyDemo {
     }
 }
 
-class Box {
-    volatile Integer item;
-    volatile Boolean flag = false;
+class UnsyncBox {
+    Integer item;
+    Boolean flag = false;
 
-    synchronized void producer(int value) throws InterruptedException {
-
-        while(flag == true) {
-            wait();
-        }
-
+    void producer(int value) {
         item = value;
         flag = true;
         System.out.println("Producer produces " + item);
-        notify();
     }
 
-    synchronized void consumer() throws InterruptedException {
-
-        while(flag == false) {
-            wait();
-        }
-
+    void consumer() {
         System.out.println("Consumer consumes " + item);
         item = null;
         flag = false;
-        notify();
     }
 }

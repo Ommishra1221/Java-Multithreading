@@ -3,7 +3,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class _01_AtomicIntegerDemo {
    public static void main(String[] args) {
     
-    Counter counter = new Counter();
+    AtomicCounter counter = new AtomicCounter();
     
     Thread t1 = new Thread(() -> {
         for(int i = 1; i <= 10000; i++) {
@@ -31,7 +31,7 @@ public class _01_AtomicIntegerDemo {
 }
 
 // AtomicInteger
-class Counter {
+class AtomicCounter {
     //int count = 0;
     AtomicInteger count = new AtomicInteger(0);
 

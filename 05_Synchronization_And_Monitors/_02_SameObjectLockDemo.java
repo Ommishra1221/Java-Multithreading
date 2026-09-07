@@ -1,7 +1,7 @@
 public class _02_SameObjectLockDemo {
     public static void main(String[] args) {
         
-        Test test = new Test();
+        SameLockResource test = new SameLockResource();
 
         Thread t1 = new Thread(() -> test.m1());
 
@@ -12,7 +12,7 @@ public class _02_SameObjectLockDemo {
     }
 }
 
-class Test {
+class SameLockResource {
     synchronized void m1() {
          System.out.println("m1 entered");
 

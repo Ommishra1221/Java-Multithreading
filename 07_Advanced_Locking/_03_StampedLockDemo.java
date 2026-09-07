@@ -5,7 +5,7 @@ import java.util.concurrent.locks.StampedLock;
 
 public class _03_StampedLockDemo {
     public static void main(String[] args) {
-        SharedResource sr = new SharedResource();
+        StampedLockResource sr = new StampedLockResource();
         
         Thread r1 = new Thread(() -> sr.read());
         Thread r2 = new Thread(() -> sr.read());
@@ -24,7 +24,7 @@ public class _03_StampedLockDemo {
     }
 }
 
-class SharedResource {
+class StampedLockResource {
     private int value = 0;
     
     StampedLock lock = new StampedLock();

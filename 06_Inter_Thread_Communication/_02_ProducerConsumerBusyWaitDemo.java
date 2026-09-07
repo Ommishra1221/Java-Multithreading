@@ -1,6 +1,6 @@
-public class _01_ProducerConsumerNoSyncDemo {
+public class _02_ProducerConsumerBusyWaitDemo {
     public static void main(String[] args) {
-        Box box = new Box();
+        BusyWaitBox box = new BusyWaitBox();
 
         Thread t1 = new Thread(() -> {
             for(int i=1; i<=20; i++) {
@@ -27,17 +27,27 @@ public class _01_ProducerConsumerNoSyncDemo {
     }
 }
 
-class Box {
-    Integer item;
-    Boolean flag = false;
+class BusyWaitBox {
+    volatile Integer item;
+    volatile Boolean flag = false;
 
-    void producer(int value) {
+    synchronized void producer(int value) {
+
+        while(flag == true) {
+            // do nothing
+        }
+
         item = value;
         flag = true;
         System.out.println("Producer produces " + item);
     }
 
-    void consumer() {
+    synchronized void consumer() {
+
+        while(flag == false) {
+            // do nothing
+        }
+
         System.out.println("Consumer consumes " + item);
         item = null;
         flag = false;

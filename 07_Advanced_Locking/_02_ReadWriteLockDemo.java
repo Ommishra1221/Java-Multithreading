@@ -4,7 +4,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class _02_ReadWriteLockDemo {
     public static void main(String[] args) {
-        SharedResource sr = new SharedResource();
+        RwLockResource sr = new RwLockResource();
         
         Thread r1 = new Thread(() -> sr.read());
         Thread r2 = new Thread(() -> sr.read());
@@ -24,7 +24,7 @@ public class _02_ReadWriteLockDemo {
     }
 }
 
-class SharedResource {
+class RwLockResource {
     private int value = 0;
     
     ReadWriteLock rwLock = new ReentrantReadWriteLock();
